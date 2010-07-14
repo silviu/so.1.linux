@@ -55,13 +55,26 @@ void run_command(simple_command_t * s)
     char** pp = get_params(s);
     if ( fork() == 0)
     {
+        if (s->err != NULL && NULL != s->out)
+        {
+            int fd_out = open(s->out->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
+            if (-1 == fd_out)
+                printf("Could not open file.");
+                dup2(fd_out, 1);
+            
+            int fd_err = open(s->err->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
+            if (-1 == fd_err)
+                printf("Could not open file.");
+                dup2(fd_err, 1);
+        } else
+        
         if (s->out != NULL)
         {
             int fd = open(s->out->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
             if (-1 == fd)
                 printf("Could not open file.");
                 dup2(fd, 1);
-        }
+        } else
         
         if (s->in != NULL)
         {
@@ -69,8 +82,45 @@ void run_command(simple_command_t * s)
             if (-1 == fd)
                 printf("Could not open file.");
                 dup2(fd, 0);
-        }
+        } else 
         
+        if (s->err != NULL)
+        {
+            int fd = open(s->out->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
+            if (-1 == fd)
+                printf("Could not open file.");
+                dup2(fd, 1);
+        }else
+        
+        if ((s->io_flags & IO_OUT_APPEND) && (s->io_flags & IO_ERR_APPEND))
+        {
+            int fd_out = open(s->out->string, O_APPEND);
+            if (-1 == fd_out)
+                printf("Could not open file.");
+                dup2(fd_out, 1);
+                
+            int fd_err = open(s->err->string, O_APPEND);
+            if (-1 == fd_err)
+                printf("Could not open file.");
+                dup2(fd_err, 1);
+        }else
+        
+        if (s->io_flags & IO_OUT_APPEND)
+        {
+            int fd = open(s->out->string, O_APPEND);
+            if (-1 == fd)
+                printf("Could not open file.");
+                dup2(fd, 1);
+        }else
+        
+        if (s->io_flags & IO_ERR_APPEND)
+        {
+            int fd = open(s->err->string, O_APPEND);
+            if (-1 == fd)
+                printf("Could not open file.");
+                dup2(fd, 1);
+        }
+
         execvp(s->verb->string, (char *const *)pp);
     }
 }
