@@ -5,6 +5,8 @@
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
+#include <errno.h>
 
 #include <assert.h>
 
@@ -37,7 +39,7 @@ char** get_params(simple_command_t * s)
 {
     word_t * crt = s->params;
     int param_no = count_params(s);
-    char** param_vector = malloc (sizeof(char*) * (param_no + 2));
+    char** param_vector = (char**) malloc (sizeof(char*) * (param_no + 2));
 
     param_vector[0] = s->verb->string;
     int i = 1;
@@ -50,90 +52,144 @@ char** get_params(simple_command_t * s)
 	return param_vector;
 }
 
-void run_command(simple_command_t * s)
+void parse_forwards(simple_command_t * s)
 {
-    char** pp = get_params(s);
-    if ( fork() == 0)
-    {
-        if (s->err != NULL && NULL != s->out)
+    
+        
+    if (s->err != NULL && NULL != s->out)
         {
             int fd_out = open(s->out->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
             if (-1 == fd_out)
                 printf("Could not open file.");
-                dup2(fd_out, 1);
-            
+            dup2(fd_out, STDOUT_FILENO);
+
             int fd_err = open(s->err->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
             if (-1 == fd_err)
                 printf("Could not open file.");
-                dup2(fd_err, 1);
-        } else
+            dup2(fd_err, STDERR_FILENO);
+        }
         
         if (s->out != NULL)
         {
             int fd = open(s->out->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
             if (-1 == fd)
                 printf("Could not open file.");
-                dup2(fd, 1);
-        } else
+            dup2(fd, STDOUT_FILENO);
+        }
         
         if (s->in != NULL)
         {
             int fd = open(s->in->string, O_RDONLY);
             if (-1 == fd)
                 printf("Could not open file.");
-                dup2(fd, 0);
-        } else 
+            dup2(fd, STDIN_FILENO);
+        }  
         
         if (s->err != NULL)
         {
             int fd = open(s->out->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
             if (-1 == fd)
                 printf("Could not open file.");
-                dup2(fd, 1);
-        }else
+            dup2(fd, STDERR_FILENO);
+        }
         
         if ((s->io_flags & IO_OUT_APPEND) && (s->io_flags & IO_ERR_APPEND))
         {
             int fd_out = open(s->out->string, O_APPEND);
             if (-1 == fd_out)
                 printf("Could not open file.");
-                dup2(fd_out, 1);
+                dup2(fd_out, STDOUT_FILENO);
                 
             int fd_err = open(s->err->string, O_APPEND);
             if (-1 == fd_err)
                 printf("Could not open file.");
-                dup2(fd_err, 1);
-        }else
+                dup2(fd_err, STDERR_FILENO);
+        }
         
         if (s->io_flags & IO_OUT_APPEND)
         {
             int fd = open(s->out->string, O_APPEND);
             if (-1 == fd)
                 printf("Could not open file.");
-                dup2(fd, 1);
-        }else
+                dup2(fd, STDOUT_FILENO);
+        }
         
         if (s->io_flags & IO_ERR_APPEND)
         {
             int fd = open(s->err->string, O_APPEND);
             if (-1 == fd)
                 printf("Could not open file.");
-                dup2(fd, 1);
+                dup2(fd, STDERR_FILENO);
         }
-
-        execvp(s->verb->string, (char *const *)pp);
-    }
 }
 
+void run_command(simple_command_t * s)
+{
+    if (strcmp(s->verb->string, "quit") == 0 || 0 == strcmp(s->verb->string, "exit"))
+        exit(EXIT_SUCCESS);
+    char** pp = get_params(s);
+    pid_t pid;
+    pid = fork();
+    
+    if (pid == 0)
+    {
+        parse_forwards(s);
+        execvp(s->verb->string, (char *const *)pp);   
+    } else {
+        int ret = waitpid(pid, NULL, 0);
+        if (ret == -1)
+            printf("Error on waitpid");
+        }
+}
+
+void recursive_go(command_t * c)
+{   
+	switch (c->op) {
+	    case OP_NONE:
+	        run_command(c->scmd);
+	        break;
+	        
+    	case OP_SEQUENTIAL:
+    	    recursive_go(c->cmd1);
+	        recursive_go(c->cmd2);
+			break;
+			
+		case OP_PARALLEL:
+		    if (fork() == 0)
+		        recursive_go(c->cmd1);
+		    else recursive_go(c->cmd2);
+			break;
+			
+		case OP_CONDITIONAL_ZERO:
+			break;
+			
+		case OP_CONDITIONAL_NZERO:
+			break;
+			
+		case OP_PIPE:
+			break;
+			
+		default:
+			assert(false);
+	}
+
+	
+}
+
+void prompt()
+{
+    printf(PROMPT_STRING); 
+    fflush(stdout);
+}
 
 int main(void)
 {
 	char line[1000];
 	command_t *root = NULL;
    // freopen("cmd", "r", stdin);
-   printf(PROMPT_STRING); fflush(stdout);
     while (1)
     {
+        prompt();
         root = NULL;
 	    
 	    if (fgets(line, sizeof(line), stdin) == NULL)
@@ -144,42 +200,26 @@ int main(void)
 	    /* we might have not read the entire line... */
 	    if (parse_line(line, &root)) 
 	    {
-		    printf("Command successfully read!\n");
+
 		    if (root == NULL) {
 			    printf("Command is empty!\n");
 		    } else {
 		    
 		    
 			/* root points to a valid command tree that we can use */
-			if (strcmp(line, "quit") == 0)
-		        return EXIT_SUCCESS;
-		    
 		    if (root->op == OP_NONE) {
-		            run_command(root->scmd);
+		        run_command(root->scmd);
+
 		    }
 		     else { 
-		            switch (root->op) {
-		                case OP_SEQUENTIAL:
-			                break;
-		                case OP_PARALLEL:
-			                break;
-		                case OP_CONDITIONAL_ZERO:
-			                break;
-		                case OP_CONDITIONAL_NZERO:
-			                break;
-		                case OP_PIPE:
-			                break;
-		                default:
-			                assert(false);
-		            }
+		           recursive_go(root);
+		     
 		     }
-		}
+		    }
 		}
 	    else {
 		    /* there was an error parsing the command */
 	    }
-	
-    printf(PROMPT_STRING); fflush(stdout);
 	free_parse_memory();
 	}
 	return EXIT_SUCCESS;
