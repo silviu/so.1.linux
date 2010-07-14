@@ -62,6 +62,15 @@ void run_command(simple_command_t * s)
                 printf("Could not open file.");
                 dup2(fd, 1);
         }
+        
+        if (s->in != NULL)
+        {
+            int fd = open(s->in->string, O_RDONLY);
+            if (-1 == fd)
+                printf("Could not open file.");
+                dup2(fd, 0);
+        }
+        
         execvp(s->verb->string, (char *const *)pp);
     }
 }
