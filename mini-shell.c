@@ -53,80 +53,80 @@ char** get_params(simple_command_t * s)
 }
 
 void parse_forwards(simple_command_t * s)
-{
+{   
+    int open_out_flag = (s->io_flags & IO_OUT_APPEND) ? O_APPEND : O_TRUNC;
+    int open_err_flag = (s->io_flags & IO_ERR_APPEND) ? O_APPEND : O_TRUNC;
     
-        
-    if (s->err != NULL && NULL != s->out)
+    if (s->out != NULL && NULL != s->err)
+    {
+        if (strcmp(s->out->string, s->err->string) == 0)
         {
-            int fd_out = open(s->out->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
-            if (-1 == fd_out)
-                printf("Could not open file.");
-            dup2(fd_out, STDOUT_FILENO);
-
-            int fd_err = open(s->err->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
-            if (-1 == fd_err)
-                printf("Could not open file.");
-            dup2(fd_err, STDERR_FILENO);
-        }
-        
-        if (s->out != NULL)
-        {
-            int fd = open(s->out->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
-            if (-1 == fd)
-                printf("Could not open file.");
+            int fd = open(s->out->string, O_CREAT | O_WRONLY | open_out_flag, 0644);
+            if (-1 == fd) {
+                perror("Could not open file.");
+                exit(1);
+            }
             dup2(fd, STDOUT_FILENO);
-        }
-        
-        if (s->in != NULL)
+            dup2(fd, STDERR_FILENO);
+         } 
+         else 
+         {
+            int fd_out = open(s->out->string, O_CREAT | O_WRONLY | open_out_flag, 0644);
+            if (-1 == fd_out) {
+                perror("Could not open file.");
+                exit(1);
+            }
+            dup2(fd_out, STDOUT_FILENO);
+            
+            int fd_err = open(s->err->string, O_CREAT | O_WRONLY | open_err_flag, 0644);
+            if (-1 == fd_err) {
+               perror("Could not open file.");
+               exit(1);
+            }
+            dup2(fd_err, STDERR_FILENO);
+          }
+    }
+    else
+    {
+        if (s->out != NULL) 
         {
-            int fd = open(s->in->string, O_RDONLY);
-            if (-1 == fd)
-                printf("Could not open file.");
-            dup2(fd, STDIN_FILENO);
-        }  
-        
+            int fd_out = open(s->out->string, O_CREAT | O_WRONLY | open_out_flag, 0644);
+            if (-1 == fd_out) {
+                perror("Could not open file.");
+                exit(1);
+            }
+            dup2(fd_out, STDOUT_FILENO);
+        }
         if (s->err != NULL)
         {
-            int fd = open(s->out->string, O_CREAT|O_RDWR|O_TRUNC, 0644);
-            if (-1 == fd)
-                printf("Could not open file.");
-            dup2(fd, STDERR_FILENO);
+            int fd_err = open(s->err->string, O_CREAT | O_WRONLY | open_err_flag, 0644);
+           if (-1 == fd_err) {
+              perror("Could not open file.");
+              exit(1);
+           }
+           dup2(fd_err, STDERR_FILENO);
         }
-        
-        if ((s->io_flags & IO_OUT_APPEND) && (s->io_flags & IO_ERR_APPEND))
-        {
-            int fd_out = open(s->out->string, O_APPEND);
-            if (-1 == fd_out)
-                printf("Could not open file.");
-                dup2(fd_out, STDOUT_FILENO);
-                
-            int fd_err = open(s->err->string, O_APPEND);
-            if (-1 == fd_err)
-                printf("Could not open file.");
-                dup2(fd_err, STDERR_FILENO);
-        }
-        
-        if (s->io_flags & IO_OUT_APPEND)
-        {
-            int fd = open(s->out->string, O_APPEND);
-            if (-1 == fd)
-                printf("Could not open file.");
-                dup2(fd, STDOUT_FILENO);
-        }
-        
-        if (s->io_flags & IO_ERR_APPEND)
-        {
-            int fd = open(s->err->string, O_APPEND);
-            if (-1 == fd)
-                printf("Could not open file.");
-                dup2(fd, STDERR_FILENO);
-        }
+     }
+     if (s->in != NULL)
+     {
+     	int fd_in = open(s->in->string, O_RDONLY);
+     	if (-1 == fd_in) {
+        	perror("Could not open file.");
+        	exit(1);
+       	}
+     	dup2(fd_in, STDIN_FILENO);
+     }
 }
 
 void run_command(simple_command_t * s)
 {
     if (strcmp(s->verb->string, "quit") == 0 || 0 == strcmp(s->verb->string, "exit"))
         exit(EXIT_SUCCESS);
+        
+    if (strcmp(s->verb->string, "cd") == 0) {
+    	chdir(s->params->string);
+    	}
+    	
     char** pp = get_params(s);
     pid_t pid;
     pid = fork();
@@ -186,7 +186,7 @@ int main(void)
 {
 	char line[1000];
 	command_t *root = NULL;
-   // freopen("cmd", "r", stdin);
+    //freopen("cmd", "r", stdin);
     while (1)
     {
         prompt();
@@ -210,14 +210,11 @@ int main(void)
 		    if (root->op == OP_NONE) {
 		        run_command(root->scmd);
 
+		    } else { 
+		        recursive_go(root);
+                }
 		    }
-		     else { 
-		           recursive_go(root);
-		     
-		     }
-		    }
-		}
-	    else {
+		} else {
 		    /* there was an error parsing the command */
 	    }
 	free_parse_memory();
