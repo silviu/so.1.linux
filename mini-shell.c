@@ -152,6 +152,7 @@ int recursive_go(command_t * c)
 {   
 	int exit_status = -1;
 	int exi = -1;
+	pid_t pid;
 	switch (c->op) {
 	    case OP_NONE:
 	       exit_status = run_command(c->scmd);
@@ -164,9 +165,14 @@ int recursive_go(command_t * c)
 			break;
 			
 		case OP_PARALLEL:
-		    if (fork() == 0)
+			pid = fork();
+			if (-1 == pid)
+				perror("Error on fork in recursive_go");
+				
+		    if (pid == 0) 
 		        recursive_go(c->cmd1);
-		    else recursive_go(c->cmd2);
+		    else 
+		    	recursive_go(c->cmd2);
 			break;
 			
 		case OP_CONDITIONAL_ZERO:
