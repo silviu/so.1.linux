@@ -118,36 +118,45 @@ void parse_forwards(simple_command_t * s)
      }
 }
 
-void run_command(simple_command_t * s)
+int run_command(simple_command_t * s)
 {
     if (strcmp(s->verb->string, "quit") == 0 || 0 == strcmp(s->verb->string, "exit"))
         exit(EXIT_SUCCESS);
         
-    if (strcmp(s->verb->string, "cd") == 0) {
+    if (strcmp(s->verb->string, "cd") == 0)
     	chdir(s->params->string);
-    	}
-    	
+   
     char** pp = get_params(s);
+    
     pid_t pid;
     pid = fork();
+    int status;
     
     if (pid == 0)
     {
         parse_forwards(s);
         execvp(s->verb->string, (char *const *)pp);   
     } else {
-        int ret = waitpid(pid, NULL, 0);
+    	
+        int ret = waitpid(pid, &status, 0);
         if (ret == -1)
-            printf("Error on waitpid");
+            perror("Error on waitpid");
+            
+        if (WIFEXITED(status))
+        	return WEXITSTATUS(status);
         }
+	return -2;
 }
 
-void recursive_go(command_t * c)
+int recursive_go(command_t * c)
 {   
+	int exit_status = -1;
+	int exi = -1;
 	switch (c->op) {
 	    case OP_NONE:
-	        run_command(c->scmd);
-	        break;
+	       exit_status = run_command(c->scmd);
+	       return exit_status;
+	       break;
 	        
     	case OP_SEQUENTIAL:
     	    recursive_go(c->cmd1);
@@ -161,9 +170,15 @@ void recursive_go(command_t * c)
 			break;
 			
 		case OP_CONDITIONAL_ZERO:
+			exi = recursive_go(c->cmd1);
+			if (exi == 0)
+				recursive_go(c->cmd2);
 			break;
 			
 		case OP_CONDITIONAL_NZERO:
+			exi = recursive_go(c->cmd1);
+			if (exi == 1)
+				recursive_go(c->cmd2);
 			break;
 			
 		case OP_PIPE:
@@ -173,7 +188,7 @@ void recursive_go(command_t * c)
 			assert(false);
 	}
 
-	
+	return exit_status;
 }
 
 void prompt()
