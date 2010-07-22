@@ -156,6 +156,8 @@ void parse_forwards(simple_command_t * s)
 bool is_setenv(word_t * wrd)
 {
 	word_t * pcrt = wrd;
+	if (wrd == NULL)
+		return false;
 	if (pcrt->string == NULL)
 		return false;
 	if (pcrt->next_part == NULL)
@@ -179,6 +181,17 @@ void setvar (word_t * wrd)
 	setenv(left_val, right_val, 1);
 }
 
+void env_parse(simple_command_t * s)
+{
+	while (is_setenv(s->verb))
+	{
+  		setvar(s->verb);
+   		s->verb = s->params;
+   		if (s->params != NULL)
+   			s->params = s->params->next_word;
+	}
+}
+
 int run_command(simple_command_t * s)
 {
     if (strcmp(s->verb->string, "quit") == 0 || 0 == strcmp(s->verb->string, "exit"))
@@ -187,22 +200,21 @@ int run_command(simple_command_t * s)
     if (strcmp(s->verb->string, "cd") == 0)
     	chdir(s->params->string);
     	
-    if (is_setenv(s->verb)){
-    	setvar(s->verb);   
-    }
     char** pp = get_params(s);
     
+    env_parse(s);
+
+    	
     pid_t pid;
     pid = fork();
     int status;
-    int ret_exe;
     
     if (pid == 0)
     {
         parse_forwards(s);
-        ret_exe = execvp(s->verb->string, (char *const *)pp);
-        if (ret_exe == -1)
-        	return 0;
+        execvp(s->verb->string, (char *const *)pp);
+        fprintf(stderr, "Execution failed for '%s'\n", s->verb->string);
+        exit(EXIT_FAILURE);
     } else {
     	
         int ret = waitpid(pid, &status, 0);
@@ -211,7 +223,7 @@ int run_command(simple_command_t * s)
             
         if (WIFEXITED(status))
         	return WEXITSTATUS(status);
-        }
+    }
 	return 0;
 }
 
