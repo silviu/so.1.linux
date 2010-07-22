@@ -24,6 +24,13 @@ void parse_error(const char * str, const int where)
 	fprintf(stderr, "Parse error near %d: %s\n", where, str);
 }
 
+
+void prompt()
+{
+    printf(PROMPT_STRING); 
+    fflush(stdout);
+}
+
 char* expand_conquer(word_t * wrd)
 {
    	word_t * pcrt = wrd;
@@ -227,10 +234,8 @@ int run_command(simple_command_t * s)
 
 int recursive_go(command_t * c)
 {   
-	int exit_status = -1;
 	pid_t pid, pid_pipe;
-	int pipefd[2];
-	int status;
+	int status, pipefd[2];
 	
 	switch (c->op) 
 	{
@@ -242,7 +247,7 @@ int recursive_go(command_t * c)
 	        return recursive_go(c->cmd2);
 			
 		case OP_PARALLEL:
-			switch(pid = fork())
+			switch(fork())
 			{
 				case 0:
 					recursive_go(c->cmd1);
@@ -276,7 +281,7 @@ int recursive_go(command_t * c)
 			switch(pid = fork())
 		    {
 		    	case 0:
-		    		switch(pid_pipe = fork())
+		    		switch(fork())
 		    		{
 		    			case 0:
 		    				close(pipefd[0]);
@@ -310,13 +315,7 @@ int recursive_go(command_t * c)
 		default:
 			assert(false);
 	}
-	return exit_status;
-}
-
-void prompt()
-{
-    printf(PROMPT_STRING); 
-    fflush(stdout);
+	return 0;
 }
 
 int main(void)
