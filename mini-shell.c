@@ -228,7 +228,6 @@ int run_command(simple_command_t * s)
 int recursive_go(command_t * c)
 {   
 	int exit_status = -1;
-	int exi = -1;
 	pid_t pid, pid_pipe;
 	int pipefd[2];
 	int status;
@@ -255,21 +254,21 @@ int recursive_go(command_t * c)
 			break;
 			
 		case OP_CONDITIONAL_ZERO:
-			exi = recursive_go(c->cmd1);
-			if (exi == 0)
+			switch(recursive_go(c->cmd1))
 			{
-				exi = recursive_go(c->cmd2);
-				return exi;
-			}
-			else if (exi == 1)
+				case 0:
+					return recursive_go(c->cmd2);
+				default:
 					return 0;
-			
+			}
 		case OP_CONDITIONAL_NZERO:
-			exi = recursive_go(c->cmd1);
-			if (exi != 0)
-				return recursive_go(c->cmd2);
-			return 0;
-			
+			switch(recursive_go(c->cmd1))
+			{
+				case 0:
+					return 0;
+				default:
+					return recursive_go(c->cmd2);
+			}
 		case OP_PIPE:
 			if (-1 == pipe(pipefd))
 				perror("Pipe in recursive_go");
