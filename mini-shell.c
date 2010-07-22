@@ -37,15 +37,36 @@ int count_params(simple_command_t * s)
 
 char** get_params(simple_command_t * s)
 {
-    word_t * crt = s->params;
+    word_t * wcrt = s->params;
     int param_no = count_params(s);
     char** param_vector = (char**) malloc (sizeof(char*) * (param_no + 2));
 
-    param_vector[0] = s->verb->string;
+    param_vector[0] = strdup(s->verb->string);
     int i = 1;
-    while (crt != NULL) {
-        param_vector[i] = crt->string;
-		crt = crt->next_word;
+    
+    while (wcrt != NULL) 
+    {
+    	word_t * pcrt = wcrt;
+    	char * scrt = malloc(1);
+    	int len = 1;
+    	scrt[0] = '\0';
+    	while(pcrt)
+    	{
+    		const char * x;
+    		if (pcrt->expand) {
+    			x = getenv(pcrt->string);
+    			if (x == NULL)
+    				x = "";
+    		} else {
+    			x = pcrt->string;
+    		}
+    		len += strlen(x);
+    		scrt = realloc(scrt, len);
+    		strcat(scrt, x);
+    		pcrt = pcrt->next_part;
+ 		}
+ 		param_vector[i] = scrt;
+		wcrt = wcrt->next_word;
 		i++;
 	}
 	param_vector[i] = NULL;
@@ -152,7 +173,10 @@ int recursive_go(command_t * c)
 {   
 	int exit_status = -1;
 	int exi = -1;
-	pid_t pid;
+	pid_t pid, pid_pipe;
+	int pipefd[2];
+	int status;
+	
 	switch (c->op) {
 	    case OP_NONE:
 	       exit_status = run_command(c->scmd);
@@ -161,7 +185,8 @@ int recursive_go(command_t * c)
 	        
     	case OP_SEQUENTIAL:
     	    recursive_go(c->cmd1);
-	        recursive_go(c->cmd2);
+	        exi = recursive_go(c->cmd2);
+	        return exi;
 			break;
 			
 		case OP_PARALLEL:
@@ -178,17 +203,68 @@ int recursive_go(command_t * c)
 		case OP_CONDITIONAL_ZERO:
 			exi = recursive_go(c->cmd1);
 			if (exi == 0)
-				recursive_go(c->cmd2);
+			{
+				exi = recursive_go(c->cmd2);
+				return exi;
+			}
+			else if (exi == 1)
+					return 0;
 			break;
 			
 		case OP_CONDITIONAL_NZERO:
 			exi = recursive_go(c->cmd1);
 			if (exi == 1)
-				recursive_go(c->cmd2);
+			{
+				exi = recursive_go(c->cmd2);
+				return exi;
+			}
+			else if (exi == 0)
+				return 0;
 			break;
 			
 		case OP_PIPE:
-			break;
+			if (-1 == pipe(pipefd))
+				perror("Pipe in recursive_go");
+			
+			pid = fork();
+			if (-1 == pid)
+				perror("Error on fork in recursive_go");
+			
+				
+		    if (pid == 0) {
+		    	switch(pid_pipe = fork())
+		    	{
+		    		case 0:
+		    			close(pipefd[0]);
+		    			dup2(pipefd[1], STDOUT_FILENO);
+		        		close(pipefd[1]);
+		        		recursive_go(c->cmd1);
+						exit(EXIT_SUCCESS);
+		    			break;
+		    		default:
+		    			exit(EXIT_SUCCESS);
+		    			break;
+		    	}
+		    }
+		    else {
+		    	waitpid(pid, &status, 0);
+		    	switch(pid_pipe = fork())
+		    	{
+		    		case 0:
+		    			close(pipefd[1]);
+		    			dup2(pipefd[0], STDIN_FILENO);
+		    			close(pipefd[0]);
+		    			recursive_go(c->cmd2);
+		    			exit(EXIT_SUCCESS);
+		    		break;
+		    		default:
+		    			close(pipefd[1]);
+		    			close(pipefd[0]);
+		    			waitpid	(pid_pipe, &status, 0);
+		    	}
+		       }	  
+		  	
+		break;
 			
 		default:
 			assert(false);
