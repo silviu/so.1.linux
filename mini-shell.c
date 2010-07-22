@@ -195,11 +195,14 @@ int run_command(simple_command_t * s)
     pid_t pid;
     pid = fork();
     int status;
+    int ret_exe;
     
     if (pid == 0)
     {
         parse_forwards(s);
-        execvp(s->verb->string, (char *const *)pp);   
+        ret_exe = execvp(s->verb->string, (char *const *)pp);
+        if (ret_exe == -1)
+        	return 0;
     } else {
     	
         int ret = waitpid(pid, &status, 0);
@@ -209,7 +212,7 @@ int run_command(simple_command_t * s)
         if (WIFEXITED(status))
         	return WEXITSTATUS(status);
         }
-	return -2;
+	return 0;
 }
 
 int recursive_go(command_t * c)
@@ -256,25 +259,17 @@ int recursive_go(command_t * c)
 			
 		case OP_CONDITIONAL_NZERO:
 			exi = recursive_go(c->cmd1);
-			if (exi == 1)
-			{
-				exi = recursive_go(c->cmd2);
-				return exi;
-			}
-			else if (exi == 0)
-				return 0;
-			break;
+			if (exi != 0)
+				return recursive_go(c->cmd2);
+			return 0;
 			
 		case OP_PIPE:
 			if (-1 == pipe(pipefd))
 				perror("Pipe in recursive_go");
 			
-			pid = fork();
-			if (-1 == pid)
-				perror("Error on fork in recursive_go");
-			
-				
-		    if (pid == 0) {
+			switch(pid = fork())
+		    {
+		    case 0:
 		    	switch(pid_pipe = fork())
 		    	{
 		    		case 0:
@@ -288,8 +283,8 @@ int recursive_go(command_t * c)
 		    			exit(EXIT_SUCCESS);
 		    			break;
 		    	}
-		    }
-		    else {
+		    
+		    default:
 		    	waitpid(pid, &status, 0);
 		    	switch(pid_pipe = fork())
 		    	{
@@ -304,6 +299,9 @@ int recursive_go(command_t * c)
 		    			close(pipefd[1]);
 		    			close(pipefd[0]);
 		    			waitpid	(pid_pipe, &status, 0);
+		    			if (WIFEXITED(status))
+        					return WEXITSTATUS(status);
+        				return 0; 
 		    	}
 		       }	  
 		  	
