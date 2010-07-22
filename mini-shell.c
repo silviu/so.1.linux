@@ -24,6 +24,31 @@ void parse_error(const char * str, const int where)
 	fprintf(stderr, "Parse error near %d: %s\n", where, str);
 }
 
+char* expand_conquer(word_t * wrd)
+{
+   	word_t * pcrt = wrd;
+	char * scrt = malloc(1);
+    int len = 1;
+    scrt[0] = '\0';
+    while(pcrt)
+    {
+    	const char * x;
+    	if (pcrt->expand) {
+    		x = getenv(pcrt->string);
+    		if (x == NULL)
+    			x = "";
+    	} else {
+    		x = pcrt->string;
+    	}
+    	len += strlen(x);
+    	scrt = realloc(scrt, len);
+    	strcat(scrt, x);
+    	pcrt = pcrt->next_part;
+ 	}
+ 	return scrt;
+}
+
+
 int count_params(simple_command_t * s)
 {
     word_t * crt = s->params;
@@ -34,6 +59,8 @@ int count_params(simple_command_t * s)
 	}
 	return i;
 }
+
+
 
 char** get_params(simple_command_t * s)
 {
@@ -46,25 +73,7 @@ char** get_params(simple_command_t * s)
     
     while (wcrt != NULL) 
     {
-    	word_t * pcrt = wcrt;
-    	char * scrt = malloc(1);
-    	int len = 1;
-    	scrt[0] = '\0';
-    	while(pcrt)
-    	{
-    		const char * x;
-    		if (pcrt->expand) {
-    			x = getenv(pcrt->string);
-    			if (x == NULL)
-    				x = "";
-    		} else {
-    			x = pcrt->string;
-    		}
-    		len += strlen(x);
-    		scrt = realloc(scrt, len);
-    		strcat(scrt, x);
-    		pcrt = pcrt->next_part;
- 		}
+    	char * scrt = expand_conquer(wcrt);
  		param_vector[i] = scrt;
 		wcrt = wcrt->next_word;
 		i++;
@@ -73,16 +82,21 @@ char** get_params(simple_command_t * s)
 	return param_vector;
 }
 
+
 void parse_forwards(simple_command_t * s)
 {   
     int open_out_flag = (s->io_flags & IO_OUT_APPEND) ? O_APPEND : O_TRUNC;
     int open_err_flag = (s->io_flags & IO_ERR_APPEND) ? O_APPEND : O_TRUNC;
     
+    char* out_string = expand_conquer(s->out);
+    char* err_string = expand_conquer(s->err);
+    char* in_string = expand_conquer(s->in);
+    
     if (s->out != NULL && NULL != s->err)
     {
-        if (strcmp(s->out->string, s->err->string) == 0)
+        if (strcmp(out_string, err_string) == 0)
         {
-            int fd = open(s->out->string, O_CREAT | O_WRONLY | open_out_flag, 0644);
+            int fd = open(out_string, O_CREAT | O_WRONLY | open_out_flag, 0644);
             if (-1 == fd) {
                 perror("Could not open file.");
                 exit(1);
@@ -92,14 +106,14 @@ void parse_forwards(simple_command_t * s)
          } 
          else 
          {
-            int fd_out = open(s->out->string, O_CREAT | O_WRONLY | open_out_flag, 0644);
+            int fd_out = open(out_string, O_CREAT | O_WRONLY | open_out_flag, 0644);
             if (-1 == fd_out) {
                 perror("Could not open file.");
                 exit(1);
             }
             dup2(fd_out, STDOUT_FILENO);
             
-            int fd_err = open(s->err->string, O_CREAT | O_WRONLY | open_err_flag, 0644);
+            int fd_err = open(err_string, O_CREAT | O_WRONLY | open_err_flag, 0644);
             if (-1 == fd_err) {
                perror("Could not open file.");
                exit(1);
@@ -111,7 +125,7 @@ void parse_forwards(simple_command_t * s)
     {
         if (s->out != NULL) 
         {
-            int fd_out = open(s->out->string, O_CREAT | O_WRONLY | open_out_flag, 0644);
+            int fd_out = open(out_string, O_CREAT | O_WRONLY | open_out_flag, 0644);
             if (-1 == fd_out) {
                 perror("Could not open file.");
                 exit(1);
@@ -120,7 +134,7 @@ void parse_forwards(simple_command_t * s)
         }
         if (s->err != NULL)
         {
-            int fd_err = open(s->err->string, O_CREAT | O_WRONLY | open_err_flag, 0644);
+            int fd_err = open(err_string, O_CREAT | O_WRONLY | open_err_flag, 0644);
            if (-1 == fd_err) {
               perror("Could not open file.");
               exit(1);
@@ -130,13 +144,39 @@ void parse_forwards(simple_command_t * s)
      }
      if (s->in != NULL)
      {
-     	int fd_in = open(s->in->string, O_RDONLY);
+     	int fd_in = open(in_string, O_RDONLY);
      	if (-1 == fd_in) {
         	perror("Could not open file.");
         	exit(1);
        	}
      	dup2(fd_in, STDIN_FILENO);
      }
+}
+
+bool is_setenv(word_t * wrd)
+{
+	word_t * pcrt = wrd;
+	if (pcrt->string == NULL)
+		return false;
+	if (pcrt->next_part == NULL)
+		return false;
+	pcrt = pcrt->next_part;
+	if (strcmp(pcrt->string, "=") != 0)
+		return false;
+	if (pcrt->next_part == NULL)
+		return false;
+	pcrt = pcrt->next_part;
+	if (pcrt->string == NULL)
+		return false;
+	return true;
+}
+
+void setvar (word_t * wrd)
+{
+	word_t * pcrt = wrd;
+	char * left_val  = strdup(pcrt->string);
+	char * right_val = strdup(pcrt->next_part->next_part->string);
+	setenv(left_val, right_val, 1);
 }
 
 int run_command(simple_command_t * s)
@@ -146,7 +186,10 @@ int run_command(simple_command_t * s)
         
     if (strcmp(s->verb->string, "cd") == 0)
     	chdir(s->params->string);
-   
+    	
+    if (is_setenv(s->verb)){
+    	setvar(s->verb);   
+    }
     char** pp = get_params(s);
     
     pid_t pid;
